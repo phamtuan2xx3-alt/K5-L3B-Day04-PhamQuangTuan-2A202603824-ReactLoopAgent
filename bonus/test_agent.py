@@ -3,6 +3,7 @@ import json
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from agent import run_agent
@@ -50,5 +51,37 @@ class BonusAgentTests(unittest.TestCase):
         self.assertEqual(result['status'],'completed')
         self.assertEqual(json.loads(p.histories[1][-1]['content'])['error'],'INVALID_ARGUMENTS')
         self.assertTrue(json.loads(p.histories[2][-1]['content'])['ok'])
+
+    def test_live_retry_after_waits_before_next_execution(self):
+        t=BonusTools()
+        p=ScriptedProvider([call('a','get_vercel_status',{}),call('b','get_vercel_status',{}),final()])
+        limited={'ok':False,'error':'RATE_LIMITED','retry_after':'2','retriable':True}
+        with patch.object(t,'execute',side_effect=[limited,{'provider':'vercel'}]) as execute, patch('agent.time.sleep') as sleep:
+            result=run_agent('Kiểm tra',p,t,max_steps=4)
+        self.assertEqual(result['status'],'completed')
+        self.assertEqual(execute.call_count,2)
+        sleep.assert_called_once()
+        self.assertGreater(sleep.call_args.args[0],0)
+        self.assertLessEqual(sleep.call_args.args[0],2)
+
+    def test_persistent_429_executes_at_most_three_times(self):
+        t=BonusTools(scenario='rate_limit_always')
+        p=ScriptedProvider([call(str(i),'get_vercel_status',{}) for i in range(4)]+[final()])
+        with patch.object(t,'execute',wraps=t.execute) as execute:
+            result=run_agent('Kiểm tra',p,t,max_steps=5)
+        self.assertEqual(result['status'],'completed')
+        self.assertEqual(execute.call_count,3)
+        self.assertEqual(json.loads(p.histories[4][-1]['content'])['error'],'RETRY_LIMIT_EXCEEDED')
+
+    def test_long_retry_after_does_not_sleep_or_execute_again(self):
+        t=BonusTools()
+        p=ScriptedProvider([call('a','get_vercel_status',{}),call('b','get_vercel_status',{}),final()])
+        limited={'ok':False,'error':'RATE_LIMITED','retry_after':'120','retriable':True}
+        with patch.object(t,'execute',return_value=limited) as execute, patch('agent.time.sleep') as sleep:
+            result=run_agent('Kiểm tra',p,t,max_steps=4)
+        self.assertEqual(result['status'],'completed')
+        self.assertEqual(execute.call_count,1)
+        sleep.assert_not_called()
+        self.assertFalse(json.loads(p.histories[1][-1]['content'])['retriable'])
 
 if __name__=='__main__': unittest.main()

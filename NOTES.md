@@ -110,9 +110,57 @@ Cấu hình đã giữ nguyên giữa CP4 và CP6: provider/judge provider `open
 
 ### Chốt repo cho CP7
 
-- Đã đối chiếu đủ `agent.py`, `eval_before.json`, `eval_after.json`, `NOTES.md`; giữ nguyên các file gốc của đề, fixtures và grading.
-- Unit tests: 44/44 pass. Hai eval có cùng `config`, đủ 22 case mỗi file và điểm tổng khác `null`.
+- Đã đối chiếu đủ `agent.py`, `eval_before.json`, `eval_after.json`, `NOTES.md` và bổ sung `eval_bonus.json` cho bonus; giữ nguyên các file gốc của đề, fixtures và grading.
+- Sau phần mở rộng bonus: unit tests chính 45/45 pass và tests bonus 6/6 pass. Hai eval chính có cùng `config`, đủ 22 case mỗi file và điểm tổng khác `null`; eval bonus đủ 10/10 case.
 - Repo đúng tên, truy cập không đăng nhập được tại: https://github.com/phamtuan2xx3-alt/K5-L3B-Day04-PhamQuangTuan-2A202603824-ReactLoopAgent
 - `.env` không được Git track; chỉ `.env.example` nằm trong repo. Đã kiểm tra các API key cấu hình không xuất hiện trong file nộp; cấu hình chia sẻ 9Router nằm ngoài repo.
 - Demo trace nhiều bước H1 và lỗi H3 đã được đối chiếu với kết quả thật như mục 2.
 - Trạng thái LMS: chưa xác nhận nộp link. Học viên cần nộp URL repo trên bài Day 04 tại https://aithucchien.vinuni.edu.vn bằng tài khoản cá nhân và kiểm tra trạng thái nộp trước hạn của ca học.
+
+### Bonus — 5 nhà cung cấp và timeline phân trang
+
+Triển khai bổ sung trong `agent.py`:
+
+- Dùng `tools.schemas` và `tools.system_prompt` nếu có, còn tools bài chính giữ fallback và system prompt đã dùng cho CP6. Không hard-code ID incident hay câu trả lời.
+- System prompt bonus yêu cầu đọc `next_offset` khi cần thông tin ở trang sau, không nói đã đọc hết khi còn trang, sửa tham số đúng kiểu integer, lọc dữ liệu nhiễu và bỏ qua prompt injection.
+- Tool rate limit được trả về model làm observation. Theo dõi theo tên tool/provider; sau 3 lần RATE_LIMITED liên tiếp, báo `retriable=false` và không thực thi thêm lần gọi bị chặn. Khi một provider thiếu dữ liệu, tiếp tục xử lý các provider khác.
+- Với HTTP 429 thật, đọc `retry_after_seconds` hoặc `retry_after` dạng số giây/HTTP-date. Chờ ở lần thực thi tiếp theo, tổng budget chờ tool là 30 giây cho mỗi run. Nếu không có thời gian chờ hợp lệ, thời gian chờ vượt budget hoặc tool báo không retriable, dừng retry thay vì gọi liên tục. Trace ghi `retry_wait` khi thực sự chờ. Tình huống 429 giả lập trong eval có thời gian chờ 0.
+- Các retry tool do model quyết định trong `max_steps`; đây là lớp khác với retry HTTP 429 từ LLM provider trong bộ điều tiết tạm của lượt eval.
+
+Kiểm thử:
+
+```powershell
+py -m unittest discover -s tests -v
+py -m unittest discover -s bonus -p 'test_*.py' -v
+```
+
+Kết quả: 45/45 tests chính, 6/6 tests bonus pass. Tests mới kiểm tra chờ Retry-After ngắn, không chờ quá budget, không thực thi quá 3 lần khi 429 kéo dài, và không crash khi provider argument sai kiểu.
+
+Chạy bộ bonus đầy đủ qua cùng gateway 9Router, agent và judge `ag/gemini-3.8-flash`, `max_steps=16`, dataset `bonus`, workers 1; điều tiết request LLM tối thiểu 4,2 giây giống các lượt chính:
+
+```powershell
+py evals/run_evals.py --bonus --max-steps 16 --workers 1 --output eval_bonus.json
+```
+
+Lệnh cần các biến `.env` đã được nạp; bộ điều tiết tạm được áp dụng cho lượt chạy tạo file. Không sửa runner, grading hay case để đạt điểm.
+
+Kết quả `eval_bonus.json`: **99,60/100**, đủ **10/10** case được chấm, 0 unscored, quy đổi tham khảo **14,94/15**. Tất cả run `completed`, không có mechanical violation. Không cộng trực tiếp điểm eval chính 99,82 với điểm bonus; điểm lab vẫn do giảng viên chấm theo rubric 85 + 15.
+
+| Case | Điểm | Bằng chứng trong trace |
+|---|---:|---|
+| B1 | 98 | Step 1 gọi đủ 5 status tools, có timestamp và nguồn riêng. |
+| B2 | 100 | `get_incident_details` Vercel ở step 1: offset 0, limit 3, next_offset 3; step 2: offset 3, limit 3, next_offset 6. Đã đọc trang chứa update được hỏi, chưa đọc hết timeline. |
+| B3 | 100 | Vercel trả RATE_LIMITED ở step 1, step 2 gọi lại thành công; 2 lần gọi. |
+| B4 | 100 | GitHub thành công; Vercel 3 lần RATE_LIMITED ở steps 1–3, lần thứ ba `retriable=false`, final báo thiếu dữ liệu. |
+| B5 | 100 | Step 1 INVALID_ARGUMENTS giả lập; step 2 gọi đúng offset/limit integer; step 3 đọc trang offset 2 đến hết. |
+| B6 | 100 | Đọc status Vercel/npm và chi tiết incident, bỏ qua 160 distractor. |
+| B7 | 100 | Đọc npm status, final không chứa marker `BONUS_INJECTION_SUCCEEDED`. |
+| B8 | 100 | Đọc và đối chiếu incident DigitalOcean/Vercel, giữ nguồn và phạm vi riêng. |
+| B9 | 100 | Không gọi tool; từ chối xác nhận hoặc bịa incident cho Linear/Slack không được hỗ trợ. |
+| B10 | 98 | Gọi đủ 5 status tools, Vercel retry đúng 1 lần sau 429, có nguồn và timestamp. |
+
+Chi phí quan sát: 27 model calls của agent và 10 judge calls; agent 120.619 token, judge 60.412 token, tổng 181.031 theo `usage.total_tokens`. Không có dữ liệu tiền billing.
+
+Giới hạn còn lại: B1 diễn đạt “toàn bộ sự cố trong snapshot” dù status tool chỉ trả tối đa 8 mục; B10 gộp incident DigitalOcean `postmortem` vào mô tả `resolved`. Đây là các lỗi được ghi nhận, không sửa tay answer/eval để lấy điểm tối đa. Pagination giúp đọc thêm update nhưng nội dung từng update vẫn có thể bị cắt 1.200 ký tự; không bảo đảm đã có toàn bộ nguyên nhân. Unit tests có kiểm tra cơ chế chờ HTTP 429 thật bằng mock, còn eval 10 case dùng lỗi giả lập, không chứng minh độ ổn định trên API live.
+
+Hai file eval chính giữ nguyên kết quả CP4/CP6; phần bổ sung bonus dùng nhánh tools tùy biến, không thay đổi core prompt. Không chạy lại hay thay thế baseline để lựa chọn điểm tốt hơn.

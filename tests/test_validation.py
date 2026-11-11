@@ -13,6 +13,14 @@ from test_lab import FakeProvider, tool_call, final
 
 
 class ScenarioTests(unittest.TestCase):
+    def test_provider_argument_with_wrong_type_is_observation(self):
+        fake = FakeProvider([
+            tool_call('bad', 'get_status', '{"provider":[]}'), final(),
+        ])
+        result = run_agent('Kiểm tra', fake, StatusTools())
+        self.assertEqual(result['status'], 'completed')
+        self.assertFalse(json.loads(fake.histories[1][-1]['content'])['ok'])
+
     def test_partial_timeout_does_not_affect_github(self):
         tools = ScenarioTools('cloudflare_timeout')
         self.assertEqual(tools.execute('get_status', {'provider': 'cloudflare'})['error'], 'TimeoutError')
