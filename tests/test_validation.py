@@ -26,6 +26,18 @@ class ScenarioTests(unittest.TestCase):
 
 
 class EvidenceGateTests(unittest.TestCase):
+    def test_unobserved_url_does_not_satisfy_source_gate(self):
+        url = 'https://stspg.io/pjgptg3cfc6n'
+        fake = FakeProvider([
+            tool_call('1', 'get_incident_details', '{"provider":"github","incident_id":"xr3myzj7ms51"}'),
+            final('Nguồn: https://example.com/unobserved'),
+            final('Nguồn đã kiểm tra: ' + url),
+        ])
+        result = run_agent('Kiểm tra', fake, StatusTools(), max_steps=3)
+        self.assertEqual(result['status'], 'completed')
+        self.assertEqual(len(fake.histories), 3)
+        self.assertIn(url, result['answer'])
+
     def test_missing_url_gets_revision_within_budget(self):
         url = 'https://stspg.io/pjgptg3cfc6n'
         fake = FakeProvider([tool_call('1', 'get_incident_details', '{"provider":"github","incident_id":"xr3myzj7ms51"}'),

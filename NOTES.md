@@ -46,9 +46,13 @@ Nguyên nhân có thể xảy ra: system prompt chỉ nhắc chung về giới h
 
 ## 3. Thay đổi đã thực hiện
 
-- Sửa gì, ở đâu: chưa thực hiện cải tiến CP5. CP4 giữ nguyên logic agent sau CP3. Chỉ bổ sung hỗ trợ `OPENAI_BASE_URL` và `stream: false` trong `providers.py` để kết nối 9Router; có unit test trong `tests/test_lab.py`.
-- Vì sao chọn thay đổi này: Gemini trực tiếp liên tục trả HTTP 429; chuyển endpoint theo yêu cầu sang 9Router. Đây là thay đổi kết nối trước khi lấy baseline, không phải cải tiến để so sánh điểm.
-- Hướng dự kiến CP5: nhắc rõ giới hạn update/timeline khi nguồn bị cắt; đồng thời hoàn thành contract validation URL nguồn theo `tests/test_validation.py`.
+- Sửa gì, ở đâu: bổ sung `SYSTEM_PROMPT` trong `agent.py`, yêu cầu nói rõ giới hạn khi update có `truncated=true` hoặc `updates_total` lớn hơn số update được trả; không tuyên bố đã đọc toàn bộ timeline.
+- Vì sao chọn thay đổi này: H1 trong baseline có bằng chứng cụ thể là update bị cắt và chỉ trả 3/9 update, nhưng câu trả lời không nhắc giới hạn này. Chỉ dẫn cụ thể giúp model nhận biết tín hiệu giới hạn từ dữ liệu thay vì chỉ được nhắc chung chung.
+- Hoàn thành kiểm tra nguồn bắt buộc trong `run_agent()`: thu thập URL từ `get_incident_details` có `ok=true`. Nếu final answer không chứa ít nhất một URL đã quan sát, ghi `validation_missing_source`, đưa yêu cầu sửa về model trong cùng `max_steps`. Hết bước mà chưa sửa được thì trả `max_steps`; tool thất bại không tạo yêu cầu dẫn URL.
+- Kiểm thử CP5: `py -m unittest discover -s tests -v` đạt **44/44 tests pass**. Bổ sung một test trong `tests/test_validation.py` xác nhận URL chưa quan sát không vượt qua validation. Các test có sẵn kiểm tra việc sửa nguồn trong budget, hết budget và tool không thành công đều pass.
+- Giữ nguyên `eval_before.json`, fixtures, dataset và grading. Chưa chạy eval đầy đủ sau cải tiến, chưa khẳng định điểm tăng.
+- Chạy thử riêng câu hỏi H1 qua 9Router sau cải tiến, `max_steps=8`: trả `completed`, 4 model calls, 5 tool calls. Câu trả lời đã nêu: “Tool chỉ trả về 3 trên tổng số `updates_total: 9`, và bản cập nhật giải quyết sự cố có `truncated: true`”, cùng lưu ý chưa có toàn bộ timeline gốc. Đây là kiểm tra hành vi của một lần chạy, không phải điểm eval sau và không được cộng vào baseline.
+- Thay đổi kết nối 9Router (`OPENAI_BASE_URL`, `stream: false`) đã có từ trước baseline, không tính là cải tiến CP5; cấu hình này giữ nguyên cho CP6.
 
 ## 4. So sánh hai lần chạy
 
@@ -59,8 +63,8 @@ Nguyên nhân có thể xảy ra: system prompt chỉ nhắc chung về giới h
 | Số model calls | Agent: 54; judge: 22 | Chưa chạy CP6 |
 | Token, chi phí nếu có | Agent: 185.027; judge: 105.319; tổng 290.346 token theo `usage.total_tokens`. Không có dữ liệu giá tiền. | Chưa chạy CP6 |
 
-- Lỗi đã giải quyết: chưa đánh giá cải tiến; chưa có lần eval sau.
-- Lỗi còn lại hoặc mới xuất hiện: các vấn đề A1, A2, A7, H1 nêu trên; validation nguồn CP5 chưa triển khai.
+- Lỗi đã giải quyết: các tests thiếu URL nguồn đã pass sau khi thêm validation. Chưa có lần eval đầy đủ sau để đánh giá mức cải thiện H1 hoặc điểm tổng.
+- Lỗi còn lại hoặc mới xuất hiện: cần kiểm tra lại A1, A2, A7, H1 ở CP6. Validation URL chỉ yêu cầu một URL đã quan sát, không chứng minh mọi claim hay mọi provider đều có nguồn.
 
 Cấu hình phải giữ cho CP6: provider/judge provider `openai` (giao thức tương thích qua 9Router, không phải gọi OpenAI trực tiếp); model/judge model `ag/gemini-3.8-flash`; `max_steps=8`; dataset `core`; snapshot có sẵn. Endpoint: `http://127.0.0.1:20128/v1`; chạy tuần tự, khoảng cách request tối thiểu 4,2 giây, khi HTTP 429 chờ 65 giây và thử lại tối đa 3 lần. Bộ điều tiết dùng cho lượt chạy này, chưa tích hợp vào CLI của repo. API key chỉ nằm trong `.env`.
 
@@ -71,3 +75,4 @@ Cấu hình phải giữ cho CP6: provider/judge provider `openai` (giao thức 
 - Một lần chạy baseline và một lần sau cải tiến không chứng minh độ ổn định. Hiện mới có baseline, chưa có kết quả sau cải tiến.
 - 9Router có thể đổi routing/model phía sau alias. Cần giữ cấu hình gateway và alias ổn định giữa hai lần; `config` chỉ ghi alias yêu cầu, không xác minh model nội bộ bất biến.
 - `usage` là số liệu provider trả về; không tự suy ra chi phí tiền khi chưa có giá và thông tin billing tương ứng.
+- Chỉ dẫn về dữ liệu bị cắt là cải tiến prompt, không phải bộ kiểm tra ngữ nghĩa bảo đảm model luôn nêu đúng mọi giới hạn. Validation URL hiện kiểm tra chuỗi xuất hiện trong answer, không xác minh URL có thực sự hỗ trợ từng kết luận hay không.
