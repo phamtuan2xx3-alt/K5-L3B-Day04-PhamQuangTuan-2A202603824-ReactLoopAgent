@@ -13,6 +13,7 @@ htmlcov/
 # Local editor and operating-system files
 .vscode/
 .idea/
+.playwright-mcp/
 .DS_Store
 Thumbs.db
 

@@ -44,6 +44,20 @@ Event đầy đủ có 3 update trong 9 update tổng cộng; khối trên chỉ
 
 Giả thuyết nguyên nhân từ baseline: system prompt chỉ nhắc chung về giới hạn bằng chứng, chưa yêu cầu cụ thể phải nêu `truncated` và số update được trả. Loop chuyển kết quả tool về model nhưng chưa có kiểm tra riêng cho giới hạn timeline. CP5 bổ sung chỉ dẫn này; lần chạy CP6 cho thấy H1 đã nêu giới hạn, nhưng một lần chạy không chứng minh quan hệ nhân quả hay độ ổn định.
 
+### Demo CP7 từ trace thật
+
+Mở `eval_after.json`, tìm case H1 rồi đọc `result.trace` theo thứ tự:
+
+| Model step | Sự kiện và dữ liệu quan sát |
+|---|---|
+| 1 | Model yêu cầu hai call `get_incident_details`: GitHub `h02n9572mx9y` và Cloudflare `yaa0witbl2me`. Tool trả lần lượt 3/4 và 3/3 update. |
+| 2 | Sau khi nhận tool results, model theo liên kết từ incident GitHub, gọi `get_incident_details` cho `xr3myzj7ms51`. Tool trả 3/9 update và có update `truncated: true`. |
+| 3 | Model trả `finish: stop`, không còn calls. Answer dẫn nguồn hai bên, nêu rõ giới hạn dữ liệu và chưa có bằng chứng chung nguyên nhân. Run `completed`, case được chấm 100/100. |
+
+Điểm cần giải thích khi demo: call ở step 2 phụ thuộc dữ liệu lấy ở step 1; Python phải giữ nguyên assistant message và trả mọi tool result với đúng `tool_call_id` trước khi gọi model tiếp. Step tính theo số lần gọi model, không theo số tool calls.
+
+Demo một lỗi còn lại: case H3 trong cùng file. Tool trả `ok: false`, `error: INCIDENT_NOT_FOUND`, với thông báo chỉ tìm trong 50 incident gần nhất. Agent vẫn dùng tiêu đề “Không tồn tại sự cố với mã này”, mạnh hơn bằng chứng. Case đạt 97/100; cần diễn đạt “không tìm thấy trong phạm vi dữ liệu” thay vì kết luận không tồn tại. Lỗi này cho thấy `completed` và điểm cao không đồng nghĩa mọi phát biểu đều đúng.
+
 ## 3. Thay đổi đã thực hiện
 
 - Sửa gì, ở đâu: bổ sung `SYSTEM_PROMPT` trong `agent.py`, yêu cầu nói rõ giới hạn khi update có `truncated=true` hoặc `updates_total` lớn hơn số update được trả; không tuyên bố đã đọc toàn bộ timeline.
@@ -93,3 +107,12 @@ Cấu hình đã giữ nguyên giữa CP4 và CP6: provider/judge provider `open
 - 9Router có thể đổi routing/model phía sau alias. Cần giữ cấu hình gateway và alias ổn định giữa hai lần; `config` chỉ ghi alias yêu cầu, không xác minh model nội bộ bất biến.
 - `usage` là số liệu provider trả về; không tự suy ra chi phí tiền khi chưa có giá và thông tin billing tương ứng.
 - Chỉ dẫn về dữ liệu bị cắt là cải tiến prompt, không phải bộ kiểm tra ngữ nghĩa bảo đảm model luôn nêu đúng mọi giới hạn. Validation URL hiện kiểm tra chuỗi xuất hiện trong answer, không xác minh URL có thực sự hỗ trợ từng kết luận hay không.
+
+### Chốt repo cho CP7
+
+- Đã đối chiếu đủ `agent.py`, `eval_before.json`, `eval_after.json`, `NOTES.md`; giữ nguyên các file gốc của đề, fixtures và grading.
+- Unit tests: 44/44 pass. Hai eval có cùng `config`, đủ 22 case mỗi file và điểm tổng khác `null`.
+- Repo đúng tên, truy cập không đăng nhập được tại: https://github.com/phamtuan2xx3-alt/K5-L3B-Day04-PhamQuangTuan-2A202603824-ReactLoopAgent
+- `.env` không được Git track; chỉ `.env.example` nằm trong repo. Đã kiểm tra các API key cấu hình không xuất hiện trong file nộp; cấu hình chia sẻ 9Router nằm ngoài repo.
+- Demo trace nhiều bước H1 và lỗi H3 đã được đối chiếu với kết quả thật như mục 2.
+- Trạng thái LMS: chưa xác nhận nộp link. Học viên cần nộp URL repo trên bài Day 04 tại https://aithucchien.vinuni.edu.vn bằng tài khoản cá nhân và kiểm tra trạng thái nộp trước hạn của ca học.
