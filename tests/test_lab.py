@@ -78,6 +78,61 @@ class LoopTests(unittest.TestCase):
         self.assertEqual(run_agent('x', fake, StatusTools())['status'], 'completed')
         self.assertEqual([m['tool_call_id'] for m in fake.histories[1][-2:]], ['a', 'b'])
 
+    def test_budget_exhaustion_has_terminal_trace(self):
+        fake = FakeProvider([tool_call('a', 'get_status', '{"provider":"github"}')])
+        result = run_agent('x', fake, StatusTools(), max_steps=1)
+        self.assertEqual(len(fake.histories), 1)
+        self.assertEqual(result['trace'][-1], {'event': 'max_steps', 'step': 1})
+
+    def test_abnormal_finish_has_terminal_trace(self):
+        for finish in ('length', 'content_filter', None):
+            with self.subTest(finish=finish):
+                response = final('partial')
+                response['finish'] = finish
+                result = run_agent('x', FakeProvider([response]), StatusTools())
+                self.assertEqual(result['status'], 'error')
+                self.assertEqual(result['answer'], '')
+                self.assertEqual(result['trace'][-1], {
+                    'event': 'model_error', 'step': 1, 'finish': finish,
+                    'error': 'UNEXPECTED_FINISH',
+                })
+
+    def test_provider_exception_is_sanitized(self):
+        with patch.object(FakeProvider, 'complete', side_effect=RuntimeError('secret-key')):
+            result = run_agent('x', FakeProvider([]), StatusTools())
+        self.assertEqual(result['status'], 'error')
+        self.assertEqual(result['trace'][-1]['event'], 'provider_error')
+        self.assertNotIn('secret-key', json.dumps(result))
+
+    def test_tool_failures_are_returned_to_model(self):
+        cases = [
+            ('missing', '{}', StatusTools()),
+            ('get_status', '{"provider":"invalid"}', StatusTools()),
+            ('get_status', '{"provider":"github"}', StatusTools(fail=True)),
+        ]
+        for name, arguments, tools in cases:
+            with self.subTest(name=name, arguments=arguments):
+                fake = FakeProvider([tool_call('failure', name, arguments), final()])
+                result = run_agent('x', fake, tools)
+                self.assertEqual(result['status'], 'completed')
+                observation = json.loads(fake.histories[1][-1]['content'])
+                self.assertFalse(observation['ok'])
+                event = next(e for e in result['trace'] if e['event'] == 'tool')
+                self.assertEqual(event['result'], observation)
+
+    def test_unexpected_tool_exception_is_observation(self):
+        fake = FakeProvider([
+            tool_call('timeout', 'get_status', '{"provider":"github"}'), final(),
+        ])
+        with patch.object(StatusTools, 'execute', side_effect=TimeoutError('secret-key')):
+            result = run_agent('x', fake, StatusTools())
+        self.assertEqual(result['status'], 'completed')
+        observation = json.loads(fake.histories[1][-1]['content'])
+        self.assertEqual(observation, {
+            'ok': False, 'error': 'TOOL_ERROR', 'type': 'TimeoutError',
+        })
+        self.assertNotIn('secret-key', json.dumps(result))
+
 
 class ProviderTests(unittest.TestCase):
     @patch.dict('os.environ', {'ANTHROPIC_API_KEY': 'test'})

@@ -39,6 +39,8 @@ def run_agent(question, provider, tools, max_steps=6):
         messages.append(message)
 
         if finish not in ('stop', 'tool_calls'):
+            trace.append({'event': 'model_error', 'step': step,
+                          'finish': finish, 'error': 'UNEXPECTED_FINISH'})
             result.update(status='error', error='UNEXPECTED_FINISH')
             return result
 
@@ -69,7 +71,10 @@ def run_agent(question, provider, tools, max_steps=6):
             result.update(status='completed', answer=message.get('content') or '')
             return result
 
+        trace.append({'event': 'model_error', 'step': step,
+                      'finish': finish, 'error': 'MISSING_TOOL_CALLS'})
         result.update(status='error', error='MISSING_TOOL_CALLS')
         return result
 
+    trace.append({'event': 'max_steps', 'step': max_steps})
     return result
