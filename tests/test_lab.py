@@ -135,6 +135,24 @@ class LoopTests(unittest.TestCase):
 
 
 class ProviderTests(unittest.TestCase):
+    @patch.dict('os.environ', {
+        'OPENAI_API_KEY': 'local-test',
+        'OPENAI_BASE_URL': 'http://127.0.0.1:20128/v1/',
+    })
+    @patch('providers.post_json')
+    def test_openai_compatible_base_url(self, post):
+        post.return_value = {
+            'choices': [{'message': {'role': 'assistant', 'content': 'ok'},
+                         'finish_reason': 'stop'}], 'usage': {},
+        }
+        result = Provider('openai', 'local-model').complete([
+            {'role': 'user', 'content': 'hello'},
+        ], [])
+        self.assertEqual(result['finish'], 'stop')
+        self.assertEqual(post.call_args.args[0],
+                         'http://127.0.0.1:20128/v1/chat/completions')
+        self.assertIs(post.call_args.args[2].get('stream'), False)
+
     @patch.dict('os.environ', {'ANTHROPIC_API_KEY': 'test'})
     @patch('providers.post_json')
     def test_anthropic_groups_results(self, post):
