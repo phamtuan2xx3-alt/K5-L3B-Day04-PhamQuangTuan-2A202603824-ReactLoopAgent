@@ -1,5 +1,30 @@
 .env
+.env.*
+!.env.example
 .venv/
+venv/
 __pycache__/
 *.pyc
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local logs and temporary output, not submission evidence
+*.log
+/tmp/
+/temp/
 eval_results*.json
+
+# Optional local sharing setup and superseded checkpoint artifacts
+/9router-share/
+/CP1_CP2.md
+/cp1_tools.json
+/cp2_run.json
+/cp2_tests.txt
